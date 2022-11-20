@@ -1,0 +1,133 @@
+
+[env]
+REPO_NAME = "gatos"
+GIT_USER = "thrombe"
+GITHUB_PAGES_BRANCH = "web"
+
+# https://github.com/sagiegurari/cargo-make
+
+[tasks.run]
+script_runner = "@shell"
+script = '''
+cargo run ${@}
+'''
+
+[tasks.web-run]
+run_task = [ { name = [ "web-build", "web-wasm-bindgen", "web-prep", "server-run" ] } ]
+
+[tasks.web-run-opt]
+run_task = [ { name = [ "web-build", "web-wasm-bindgen", "web-opt", "web-prep", "server-run" ] } ]
+
+[tasks.web-push] # TODO: maybe also make sure it's a release build?
+run_task = [ { name = [ "web-build", "web-wasm-bindgen", "web-opt", "web-prep", "push" ] } ]
+
+
+[tasks.build]
+script_runner = "@shell"
+script = '''
+cargo build ${@}
+'''
+
+[tasks.web-build]
+script_runner = "@shell"
+script = '''
+cargo build --target wasm32-unknown-unknown ${@}
+'''
+
+[tasks.push]
+script_runner = "@shell"
+script = '''
+cd web
+if [[ "$(git rev-parse --abbrev-ref HEAD)" != "${GITHUB_PAGES_BRANCH}" ]]; then
+    exit 52
+fi
+git add -A
+
+# git commit --amend --no-edit
+# git push --force
+
+git commit -m "update wasm"
+git push
+'''
+
+[tasks.web-opt]
+script_runner = "@shell"
+script = '''
+dir="web/runner_bg.wasm"
+
+echo "Optimizing wasm binary with wasm-opt ..."
+
+# https://bevy-cheatbook.github.io/platforms/wasm/size-opt.html#use-the-wasm-opt-tool
+wasm-opt -O -ol 100 -s 100 $dir -o "${dir}.tmp"
+mv "${dir}.tmp" $dir
+'''
+
+[tasks.web-wasm-bindgen]
+script_runner = "@shell"
+script = '''
+found="no"
+needed_item="idk"
+for item in ${@}
+do
+    # echo $item
+    if [[ $found == "examples" ]]; then
+        needed_item=$item
+        break
+    elif [[ $item == "--example" ]]; then
+        found="examples"
+    fi
+done
+
+if [[ $needed_item == "idk" ]]; then
+    if [[ $found == "examples" ]]; then
+        exit 51
+    else
+        found="."
+        needed_item="${REPO_NAME}"
+    fi
+fi
+
+release="debug"
+for item in ${@}
+do
+    if [[ $item == "--release" ]]; then
+        release="release"
+        break
+    fi
+done
+
+dir="target/wasm32-unknown-unknown/${release}/${found}/${needed_item}.wasm"
+
+wasm-bindgen --out-dir web --out-name runner --target web --no-typescript $dir
+'''
+
+[tasks.web-prep]
+script_runner = "@shell"
+script = '''
+if [[ ! -d web ]]; then
+    mkdir web
+    cd web
+    git clone https://github.com/${GIT_USER}/${WEB_REPO_NAME}
+    git checkout ${GITHUB_PAGES_BRANCH}
+    cd ..
+else
+    cd web
+    if [[ "$(git rev-parse --abbrev-ref HEAD)" != "${GITHUB_PAGES_BRANCH}" ]]; then
+        exit 54
+    fi
+    cd ..
+fi
+
+cp web_src/index.html web/.
+cp web_src/index.js web/.
+mkdir -p assets
+mkdir -p web/assets
+rsync -av --progress "./assets/" ./web/assets/. --delete
+'''
+
+[tasks.server-run]
+script_runner = "@shell"
+script = '''
+cd server
+cargo run --release -- ../web
+'''
