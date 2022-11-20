@@ -3,8 +3,8 @@ use bevy::{
     prelude::{
         App, AssetServer, BuildChildren, ButtonBundle, Camera, Camera2dBundle, Changed, ClearColor,
         Color, Commands, Component, Entity, GlobalTransform, Handle, Image, ImageBundle,
-        ImagePlugin, Input, MouseButton, PluginGroup, Query, Res, Resource, TextBundle, Transform,
-        Vec2, Vec3, With, ResMut,
+        ImagePlugin, Input, MouseButton, PluginGroup, Query, Res, ResMut, Resource, TextBundle,
+        Transform, Vec2, Vec3, With,
     },
     sprite::{Sprite, SpriteBundle},
     text::{Font, Text, TextStyle},
@@ -16,11 +16,9 @@ use bevy::{
     window::{PresentMode, WindowDescriptor, WindowPlugin, Windows},
     DefaultPlugins,
 };
+use bevy_asset_loader::prelude::{AssetCollection, LoadingState, LoadingStateAppExt};
 use bevy_rapier2d::prelude::{Collider, QueryFilter, RapierContext, RapierPhysicsPlugin};
-use iyes_loopless::{
-    prelude::{AppLooplessStateExt, ConditionSet},
-    state::NextState,
-};
+use iyes_loopless::prelude::{AppLooplessStateExt, ConditionSet};
 
 pub fn run(mut app: App) -> Result<()> {
     app.insert_resource(ClearColor(Color::rgb(0.25, 0.3, 0.25)))
@@ -28,7 +26,7 @@ pub fn run(mut app: App) -> Result<()> {
             DefaultPlugins
                 .set(WindowPlugin {
                     window: WindowDescriptor {
-                        title: "cheso".to_string(),
+                        title: "gatos".to_string(),
                         present_mode: PresentMode::Fifo,
                         ..WindowDescriptor::default()
                     },
@@ -39,13 +37,12 @@ pub fn run(mut app: App) -> Result<()> {
         .add_plugin(RapierPhysicsPlugin::<()>::default())
         .add_system(bevy::window::close_on_esc)
         .add_loopless_state(GameState::Loading)
-        .add_enter_system(GameState::Loading, spawn)
-        .add_system_set(
-            ConditionSet::new()
-                .run_in_state(GameState::Loading)
-                .with_system(wait_for_load)
-                .into(),
+        .add_loading_state(
+            LoadingState::new(GameState::Loading)
+                .continue_to_state(GameState::Playing)
+                .with_collection::<Assets>(),
         )
+        .add_enter_system(GameState::Loading, spawn)
         .add_enter_system(GameState::Playing, spawn_ui)
         .add_system_set(
             ConditionSet::new()
@@ -82,48 +79,61 @@ fn spawn_wires(
         // reduce it to a 2D value
         let world_pos: Vec2 = world_pos.truncate();
 
-        let world_pos = (world_pos/5.0).round()*5.0;
+        let world_pos = (world_pos / 5.0).round() * 5.0;
 
         if mou.just_pressed(MouseButton::Right) {
-            let id = c.spawn((
-                WireNode,
-                TransformBundle {
-                    local: Transform {
-                        translation: Vec3::new(world_pos.x, world_pos.y, 0.0),
+            let id = c
+                .spawn((
+                    WireNode,
+                    TransformBundle {
+                        local: Transform {
+                            translation: Vec3::new(world_pos.x, world_pos.y, 0.0),
+                            ..Default::default()
+                        },
                         ..Default::default()
                     },
-                    ..Default::default()
-                },
-            )).id();
+                ))
+                .id();
             wire.nodes.push(id);
         } else if mou.just_released(MouseButton::Right) {
-            let id = c.spawn((
-                WireNode,
-                TransformBundle {
-                    local: Transform {
-                        translation: Vec3::new(world_pos.x, world_pos.y, 0.0),
+            let id = c
+                .spawn((
+                    WireNode,
+                    TransformBundle {
+                        local: Transform {
+                            translation: Vec3::new(world_pos.x, world_pos.y, 0.0),
+                            ..Default::default()
+                        },
                         ..Default::default()
                     },
-                    ..Default::default()
-                },
-            )).id();
+                ))
+                .id();
             wire.nodes.push(id);
 
-            let w = std::mem::replace(&mut *wire, Wire {nodes: Default::default()});
+            let w = std::mem::replace(
+                &mut *wire,
+                Wire {
+                    nodes: Default::default(),
+                },
+            );
             c.spawn((w, UnFinalised));
         }
     }
 }
 
-fn finalise_wire(mut c: Commands, q: Query<&Transform, With<WireNode>>, mut wires: Query<(&mut Wire, Entity), With<UnFinalised>>) {
+fn finalise_wire(
+    mut c: Commands,
+    q: Query<&Transform, With<WireNode>>,
+    mut wires: Query<(&mut Wire, Entity), With<UnFinalised>>,
+) {
     for (wire, e) in wires.iter_mut() {
         c.entity(e).remove::<UnFinalised>();
-        
+
         wire.nodes.iter().cloned().for_each(|e| {
             c.entity(e).insert(SpriteBundle {
                 sprite: Sprite {
                     color: Color::rgba(0.4, 0.5, 0.4, 1.0),
-                    custom_size: Some(Vec2::new(10., 10.)/2.0),
+                    custom_size: Some(Vec2::new(10., 10.) / 2.0),
                     ..Default::default()
                 },
                 transform: Transform {
@@ -147,27 +157,15 @@ pub struct Wire {
     pub nodes: Vec<Entity>,
 }
 
-fn wait_for_load(mut c: Commands, assets: Option<Res<Assets>>) {
-    if assets.is_some() {
-        c.insert_resource(NextState(GameState::Playing));
-    }
-}
-
 #[derive(Clone, Copy, Eq, PartialEq, Debug, Hash)]
 pub enum GameState {
     Loading,
     Playing,
 }
 
-fn spawn(mut c: Commands, asset_server: Res<AssetServer>) {
+fn spawn(mut c: Commands) {
     c.spawn(Camera2dBundle::default());
-    c.insert_resource(Wire {nodes: vec![]});
-    c.insert_resource(Assets {
-        and_gate: asset_server.load("sprites/and_gate.png"),
-        or_gate: asset_server.load("sprites/or_gate.png"),
-        not_gate: asset_server.load("sprites/not_gate.png"),
-        font: asset_server.load("fonts/VarelaRound-Regular.ttf"),
-    });
+    c.insert_resource(Wire { nodes: vec![] });
 }
 
 fn spawn_ui(mut c: Commands, assets: Res<Assets>) {
@@ -387,11 +385,15 @@ fn handle_unplaced(
 
 // #[cfg(debug_assertions)]
 
-#[derive(Resource)]
+#[derive(Resource, AssetCollection)]
 pub struct Assets {
+    #[asset(path = "sprites/and_gate.png")]
     pub and_gate: Handle<Image>,
+    #[asset(path = "sprites/or_gate.png")]
     pub or_gate: Handle<Image>,
+    #[asset(path = "sprites/not_gate.png")]
     pub not_gate: Handle<Image>,
+    #[asset(path = "fonts/VarelaRound-Regular.ttf")]
     pub font: Handle<Font>,
 }
 
