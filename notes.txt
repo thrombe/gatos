@@ -1,0 +1,22 @@
+
+wires?:
+  \. tilemaps
+    . what are tilemaps exactly?
+    . https://github.com/StarArawn/bevy_ecs_tilemap
+    . https://github.com/joshuajbouw/bevy_tilemap/tree/master/src
+  \. can i combine sprites into a bigger one?
+  /. just create sprites using raw images and spawn these
+
+drag and drop:
+  . redo by using a resource that holds id of the entity and use queries to .get() the transforms and stuff
+    . is the same bug present here?
+
+ui:
+  . try using egui?
+
+use sd to render stuff:
+  . https://github.com/johanhelsing/bevy_smud
+
+vector graphics:
+   . https://crates.io/crates/lyon
+ 

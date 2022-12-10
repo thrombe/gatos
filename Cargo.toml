@@ -12,9 +12,10 @@ bevy-inspector-egui = "0.14"
 bevy-inspector-egui-rapier = "0.8"
 bevy-web-resizer = "4.0"
 bevy_rapier2d = "0.19"
-egui_dock = "0.2"
+egui_dock = "0.3"
 bevy_asset_loader = {version = "0.14", path="../bevy_asset_loader/bevy_asset_loader", features = ["stageless"]}
 iyes_loopless = "0.9"
+image = "0.24"
 
 
 [workspace]
