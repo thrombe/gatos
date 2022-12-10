@@ -4,7 +4,7 @@ use bevy::{
         App, AssetServer, BuildChildren, ButtonBundle, Camera, Camera2dBundle, Changed, ClearColor,
         Color, Commands, Component, Entity, GlobalTransform, Handle, Image, ImageBundle,
         ImagePlugin, Input, MouseButton, PluginGroup, Query, Res, ResMut, Resource, TextBundle,
-        Transform, Vec2, Vec3, With,
+        Transform, Vec2, Vec3, With, Name,
     },
     sprite::{Sprite, SpriteBundle},
     text::{Font, Text, TextStyle},
@@ -17,6 +17,7 @@ use bevy::{
     DefaultPlugins,
 };
 use bevy_asset_loader::prelude::{AssetCollection, LoadingState, LoadingStateAppExt};
+use bevy_inspector_egui::{bevy_egui::EguiSettings, WorldInspectorPlugin};
 use bevy_rapier2d::prelude::{Collider, QueryFilter, RapierContext, RapierPhysicsPlugin};
 use iyes_loopless::prelude::{AppLooplessStateExt, ConditionSet};
 
@@ -44,6 +45,7 @@ pub fn run(mut app: App) -> Result<()> {
         )
         .add_enter_system(GameState::Loading, spawn)
         .add_enter_system(GameState::Playing, spawn_ui)
+        // .add_enter_system(GameState::Playing, create_wire_sprite) // ? temp
         .add_system_set(
             ConditionSet::new()
                 .run_in_state(GameState::Playing)
@@ -51,9 +53,15 @@ pub fn run(mut app: App) -> Result<()> {
                 .with_system(handle_unplaced)
                 .with_system(unplace_gate)
                 .with_system(spawn_wires)
-                .with_system(finalise_wire)
+                // .with_system(finalise_wire)
+                .with_system(create_wire_sprite)
                 .into(),
         )
+        .add_plugin(WorldInspectorPlugin::new())
+        .insert_resource(EguiSettings {
+            scale_factor: 0.5,
+            ..Default::default()
+        })
         .run();
     Ok(())
 }
@@ -80,33 +88,25 @@ fn spawn_wires(
         let world_pos: Vec2 = world_pos.truncate();
 
         let world_pos = (world_pos / 5.0).round() * 5.0;
+        let wire_bundle = (
+            WireNode,
+            TransformBundle {
+                local: Transform {
+                    translation: Vec3::new(world_pos.x, world_pos.y, 0.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
 
         if mou.just_pressed(MouseButton::Right) {
             let id = c
-                .spawn((
-                    WireNode,
-                    TransformBundle {
-                        local: Transform {
-                            translation: Vec3::new(world_pos.x, world_pos.y, 0.0),
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    },
-                ))
+                .spawn(wire_bundle)
                 .id();
             wire.nodes.push(id);
         } else if mou.just_released(MouseButton::Right) {
             let id = c
-                .spawn((
-                    WireNode,
-                    TransformBundle {
-                        local: Transform {
-                            translation: Vec3::new(world_pos.x, world_pos.y, 0.0),
-                            ..Default::default()
-                        },
-                        ..Default::default()
-                    },
-                ))
+                .spawn(wire_bundle)
                 .id();
             wire.nodes.push(id);
 
@@ -143,6 +143,213 @@ fn finalise_wire(
                 ..Default::default()
             });
         });
+    }
+}
+
+/*
+// might need https://bevy-cheatbook.github.io/assets/assetevent.html
+fn create_wire_sprite(
+    mut c: Commands,
+    mut image_store: ResMut<bevy::prelude::Assets<Image>>, // https://bevy-cheatbook.github.io/assets/data.html
+    q: Query<(&Transform, Entity), With<WireNode>>,
+    mut wires: Query<(&mut Wire, Entity), With<UnFinalised>>,
+) {
+        // let mut img = image::ImageBuffer::from_fn(20, 20, |x, y| {
+        //     if (x + y) % 2 == 0 {
+        //         image::Rgba([0., 0., 0., 0.])
+        //     } else {
+        //         image::Rgba([1., 1., 1., 1.])
+        //     }
+        // });
+
+    for (wire, e) in wires.iter_mut() {
+        c.entity(e).remove::<UnFinalised>();
+
+        let start = q.iter().find(|k| k.1 == wire.nodes[0]).unwrap().0.translation;
+        let stop = q.iter().find(|k| k.1 == wire.nodes[1]).unwrap().0.translation;
+
+        let left = ((gleft-gleft)/5.0).round();
+        let right = ((gright-gleft)/5.0).round();
+
+        /*
+        left = v(start.x.min(stop.x), start.y.min(stop.y)) // vecu32 or somehitng
+        right = v(..max.., ..max..)
+        hflip = !(left.x == start.x)
+        vflip = !(left.y == start.y)
+        h = right.x-left.x
+        v = right.y-left.y
+        right -= left
+        offset = left
+        left -= left
+        for x in 0..(h/2) {
+            if hflip {
+                img[0][h-1-i] = 1
+            } else {
+                img[0][i] = 1
+            }
+        }
+
+        for x in 0..(h-h/2) {
+            if hflip {
+                img[v-1][h-i-(h/2+i)] = 1
+            } else {
+                img[v-1][h/2+i] = 1
+            }
+        }
+
+        off = (start - stop)/2.0
+        pos = (start/5.0).rount()*5.0 + off
+        */
+    
+        let w = (right.x - left.x).abs() as _;
+        let h = (right.y - left.y).abs() as _;
+        let mut img = image::Rgba32FImage::new(w, h);
+    
+        for x in 1..1 {
+            img.put_pixel(x as _, y, image::Rgba([0.4, 0.5, 0.4, 1.]));
+        }
+        
+        // img.put_pixel(0, 0, image::Rgba([1., 0., 0., 1.]));
+        // now create a bevy Image from img as DynamicImage and use in a sprite
+        let img = Image::from_dynamic(img.into(), true);
+        c.spawn((
+            SpriteBundle {
+                texture: image_store.add(img.into()),
+                transform: Transform {
+                    // scale: Vec3::splat(4.0),
+                    translation: ((gleft/5.0).round()*5.0+(gright/5.0).round()*5.0)/2.0,
+                    ..Default::default()
+                },
+                sprite: Sprite {
+                    custom_size: Some(Vec2::new(w as f32 * 10., h as f32 * 10.) / 2.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            Gate::Not,
+            Collider::cuboid(w as f32 * 10.0 / 4.0, h as f32 * 10.0 / 4.0),
+            Name::from("wire"),
+        ));
+    }
+}
+*/
+
+// might need https://bevy-cheatbook.github.io/assets/assetevent.html
+fn create_wire_sprite(
+    mut c: Commands,
+    mut image_store: ResMut<bevy::prelude::Assets<Image>>, // https://bevy-cheatbook.github.io/assets/data.html
+    q: Query<(&Transform, Entity), With<WireNode>>,
+    mut wires: Query<(&mut Wire, Entity), With<UnFinalised>>,
+) {
+    for (mut wire, e) in wires.iter_mut() {
+        let old_len = wire.nodes.len();
+        // bevy::log::info!("{:?}", wire.nodes.iter().cloned().map(|e| q.get(e).unwrap().0.translation).collect::<Vec<_>>());
+
+        wire.nodes = wire.nodes.iter().cloned().zip(wire.nodes.iter().cloned().skip(1))
+        .map(|(a, b)| {
+            let at = q.get(a).unwrap();
+            let bt = q.get(b).unwrap();
+            if at.0.translation.x as i64 == bt.0.translation.x as i64 || at.0.translation.y as i64 == bt.0.translation.y as i64 {
+                vec![a].into_iter()
+            } else {
+                // dbg!(at.0.translation.x as i64 == bt.0.translation.x as i64, at.0.translation.y as i64 == bt.0.translation.y as i64);
+                let mut new_x = (at.0.translation.x + bt.0.translation.x)/2.0;
+                new_x = (new_x/5.0).round()*5.0;
+                let ce = c.spawn((
+                    WireNode,
+                    TransformBundle {
+                        local: Transform {
+                            translation: Vec3::new(new_x, at.0.translation.y, 0.0),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },        
+                )).id();
+                let de = c.spawn((
+                    WireNode,
+                    TransformBundle {
+                        local: Transform {
+                            translation: Vec3::new(new_x, bt.0.translation.y, 0.0),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },        
+                )).id();
+                vec![a, ce, de].into_iter()
+            }
+        }).flatten().chain([wire.nodes.iter().cloned().rev().next().unwrap()]).collect();
+        if wire.nodes.len() != old_len {
+            continue;
+        }
+        // bevy::log::info!("{:?}", wire.nodes.iter().cloned().map(|e| q.get(e).unwrap().0.translation).collect::<Vec<_>>());
+        c.entity(e).remove::<UnFinalised>();
+
+        let (l, r) = wire.nodes.iter().cloned()
+        .map(|e| q.get(e).unwrap().0.translation)
+        // .map(|t| (t.truncate(), t.truncate()))
+        .map(|t| (t, t))
+        .reduce(|a, b| (a.0.min(b.0), a.1.max(b.1)))
+        .unwrap();
+    
+        dbg!(l, r, (r-l)/5.0);
+        let w = ((r.x - l.x)/5.0).round() as u32;
+        let h = ((r.y - l.y)/5.0).round() as u32;
+        if w*h == 0 {
+            bevy::log::error!("wire size zero");
+            continue;
+        }
+        let mut img = image::Rgba32FImage::new(w, h);
+        let v = wire.nodes.iter().cloned()
+        .map(|e| q.get(e).unwrap().0.translation)
+        .map(|t| t-l)
+        // .inspect(|t| {dbg!(&t);})
+        .map(|t| (t/5.0).round())
+        .map(|t| (t.x as u32, t.y as u32))
+        // .inspect(|t| {dbg!(&t);})
+        ;
+        
+        v.clone().zip(v.clone().skip(1))
+        .for_each(|(t1, t2)| {
+            if t1.0 == t2.0 {
+                let x = t1.0;
+                for y in t1.1.min(t2.1)..t1.1.max(t2.1) {
+                    img.put_pixel(x, h-y-1, image::Rgba([0.4, 0.5, 0.4, 1.]));
+                }
+            } else if t1.1 == t2.1 {
+                let y = t1.1.min(h-1);
+                for x in t1.0.min(t2.0)..t1.0.max(t2.0) {
+                    img.put_pixel(x, h-y-1, image::Rgba([0.4, 0.5, 0.4, 1.]));
+                }
+            } else {
+                unreachable!();
+            }
+        });
+    
+        // img.put_pixel(0, 0, image::Rgba([1., 0., 0., 1.]));
+        // now create a bevy Image from img as DynamicImage and use in a sprite
+        let img = Image::from_dynamic(img.into(), true);
+        c.spawn((
+            SpriteBundle {
+                texture: image_store.add(img.into()),
+                transform: Transform {
+                    // scale: Vec3::splat(4.0),
+                    // off = (start - stop)/2.0
+                    // pos = (start/5.0).rount()*5.0 + off            
+                    // translation: ((gleft/5.0).round()*5.0+(gright/5.0).round()*5.0)/2.0,
+                    // translation: ((l/5.0).round()*5.0+(r/5.0).round()*5.0)/2.0,
+                    translation: (l/5.0).round()*5.0 + (r-l)/2.0,
+                    ..Default::default()
+                },
+                sprite: Sprite {
+                    custom_size: Some(Vec2::new(w as f32 * 10., h as f32 * 10.) / 2.0),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            Gate::Not,
+            Collider::cuboid(w as f32 * 10.0 / 4.0, h as f32 * 10.0 / 4.0),
+            Name::from("wire"),
+        ));
     }
 }
 
@@ -225,7 +432,7 @@ fn spawn_ui(mut c: Commands, assets: Res<Assets>) {
                         },
                         // align_items: AlignItems::Center,
                         position: UiRect {
-                            left: Val::Percent(-25.0),
+                            // left: Val::Percent(-25.0),
                             ..Default::default()
                         },
                         ..Default::default()
@@ -255,7 +462,7 @@ fn spawn_gate(
     for (button, pos, g) in buttons.iter() {
         match button {
             Interaction::Clicked => {
-                // bevy::prelude::info!("spawning");
+                bevy::prelude::info!("spawning");
                 c.spawn((
                     SpriteBundle {
                         texture: assets.gate_image(*g).clone(),
@@ -304,21 +511,13 @@ fn unplace_gate(
             // reduce it to a 2D value
             let world_pos: Vec2 = world_pos.truncate();
 
-            // rapier_context.intersections_with_point(world_pos, QueryFilter::default(), |e| {
-            //     c.entity(e).insert(UnPlaced(
-            //        world_pos - gates.get(e).unwrap().0.translation.truncate(), // BAD: found a bug in bevy. gates.get(e) gives wrong result for some reason
-            //     ));
-            //     bevy::prelude::info!("unplaced e: {:?} pos: {:?}", e, gates.get(e).unwrap().0.translation.truncate());
-            //     bevy::prelude::info!("offset {:?}", world_pos - gates.get(e).unwrap().0.translation.truncate());
-            //     bevy::prelude::info!("found_entity {:?}", gates.get(e).unwrap().1);
-            //     false
-            // });
             rapier_context.intersections_with_point(world_pos, QueryFilter::default(), |e| {
                 c.entity(e).insert(UnPlaced(
                     world_pos
                         - gates
-                            .iter()
-                            .find(|k| k.1 == e)
+                            // .iter()
+                            // .find(|k| k.1 == e)
+                            .get(e)
                             .unwrap()
                             .0
                             .translation
@@ -342,6 +541,7 @@ fn handle_unplaced(
     let (camera, camera_transform) = q_camera.single();
     if let Ok((mut pos, e, _g, upos)) = unplaced_gate.get_single_mut() {
         if mou.just_released(MouseButton::Left) {
+            bevy::prelude::info!("just released");
             // try to place
             if palette.iter().any(|p| *p == Interaction::Hovered) {
                 // if still in the button, just delete it
